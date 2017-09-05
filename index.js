@@ -1,40 +1,41 @@
-var through = require('through2'); //处理stearm流
-var fs = require("fs"); //文件系统
-var crypto = require('crypto');//node hash
+var through = require('through2');
+var gutil = require('gulp-util');
+var crypto = require('crypto');
+var fs = require('fs');
 
+const PLUGIN_NAME = 'gulp-prefixer';
 
-function version(ops)
-{
-    ops || (ops = {});
-    ops.placeHolder || (ops.placeHolder = "_v_");
-    function _version(file, enc, cb){
-        var html = String(file.contents);
-        //获取版本号
-        /*var regex = new RegExp("\\?("+ops.placeHolder+"=.*?)\"","igm");
-        ops.version || (ops.version = new Date().getTime());
-        var versionStr = "?"+ops.placeHolder+"="+ops.version+"\"";
-        html = html.replace(regex,versionStr);*/
-        var regex = new RegExp("(href=\"|src=\")(.*?)\\?"+ops.placeHolder+"=.*?\"","igm");
-        var result = null;
-        var timestamp = new Date().getTime();
-        while((result = regex.exec(html)) != null){
-            var version = "";
-	          var source = result[2].replace("{{jsDomain}}","").replace("{{cssDomain}}","");
-            if(source.indexOf("{{") >= 0){
-                version = ops.version || timestamp;
-            }else{
-                version = ops.version || 
-                            crypto.createHash('md5')
-                                .update(fs.readFileSync("src"+source,"utf8"))
-                                .digest('hex');
-            }
-            html = html.replace(result[0],result[0].replace(new RegExp("\\?"+ops.placeHolder+"=.*?\""),"?"+ops.placeHolder+"="+version+"\""));
-        }
-
-        file.contents = new Buffer(html);
-        cb(null,file);
-    }
-    return through.obj(_version);
+function prefixStream(path) {
+  var html = fs.readFileSync(path).toString();
+  var r = /(<script\ssrc=['|"])(.*?)(['|"]>)/;
+  var version = crypto.createHash('md5')
+        .update(fs.readFileSync("./index.js","utf8"))
+        .digest('hex');
+  html = html.replace(r,(all,left,mid,right)=>{
+    return `${left}${mid}?v_${version}${right}`;
+  });
+  var stream = through();
+  stream.write(html);
+  return stream;
 }
 
-module.exports = version;
+function gulpPrefixer() {
+
+    var stream = through.obj(function(file, enc, cb) {
+    
+    if (file.isBuffer()) {
+      this.emit('error', new PluginError(PLUGIN_NAME, 'Buffers not supported!'));
+      return cb();
+    }
+    if (file.isStream()) {
+      var streamer = prefixStream(file.path);
+      streamer.on('error', this.emit.bind(this, 'error'));
+      file.contents = streamer;
+    }
+    this.push(file);
+    cb();
+  });
+  return stream;
+}
+
+module.exports = gulpPrefixer;
